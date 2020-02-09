@@ -1,0 +1,17 @@
+{
+    "name": "FirstPersonControllerEditor",
+    "references": [
+        "GUID:74b54b22921a3cc4a914a9d1695a20ed"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

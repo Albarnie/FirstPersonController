@@ -34,6 +34,7 @@ public class CharacterAnimator : MonoBehaviour
     public float bodyYSpeed = 0.3f,
         footIKSpeed = 1;
     public float footRadius = 0.2f;
+    public float thickFootOffset = 0.1f;
 
     public LayerMask IKLayer;
 
@@ -55,6 +56,8 @@ public class CharacterAnimator : MonoBehaviour
 
     Dictionary<Transform, ConfigurableJoint> joints = new Dictionary<Transform, ConfigurableJoint>();
     Dictionary<Transform, Quaternion> startingRotations = new Dictionary<Transform, Quaternion>();
+
+    public Vector3 rootMotion { get; private set; }
 
 
     private void Awake()
@@ -121,7 +124,7 @@ public class CharacterAnimator : MonoBehaviour
 
         if (useAnimation)
         {
-            Vector3 velocity = transform.InverseTransformVector(controller.lastVelocity);
+            Vector3 velocity = Vector3.Lerp(controller.facing.InverseTransformDirection(controller.lastVelocity), controller.character.InverseTransformDirection(controller.lastVelocity), controller.movementSmoothness);
 
             foreach (CharacterStance stance in controller.stances)
             {
@@ -132,11 +135,11 @@ public class CharacterAnimator : MonoBehaviour
             anim.SetBool("Grounded", controller.onGround);
 
             float rotation = CalcShortestRot(controller.character.eulerAngles.y, controller.cam.eulerAngles.y);
-            float roundedRot = Mathf.Round(rotation / 20) * 20;
-            currentRotation = Mathf.Lerp(currentRotation, roundedRot > 0 ? Mathf.Ceil(roundedRot / 45) * 45 : Mathf.Floor(roundedRot / 45) * 45, 2 * Time.deltaTime);
+            float roundedRot = Mathf.Round(rotation / 30) * 30;
+            currentRotation = Mathf.Lerp(currentRotation, roundedRot > 0 ? Mathf.Ceil(roundedRot / 20) * 20 : Mathf.Floor(roundedRot / 20) * 20, 2 * Time.deltaTime);
             anim.SetFloat("YRot", currentRotation * 1.5f);
 
-            currentVelocity = Vector3.Lerp(currentVelocity, velocity, Time.deltaTime * 10);
+            currentVelocity = Vector3.Lerp(currentVelocity, velocity, Time.deltaTime * 5);
 
             anim.SetFloat("ZSpeed", currentVelocity.z / Time.fixedDeltaTime / controller.movementSpeed);
             if (!controller.onGround)
@@ -149,6 +152,7 @@ public class CharacterAnimator : MonoBehaviour
     {
         if (useRootMotion)
         {
+            rootMotion = anim.deltaPosition;
             if (controller.onGround)
             {
                 transform.Rotate(anim.deltaRotation.eulerAngles);
@@ -189,6 +193,10 @@ public class CharacterAnimator : MonoBehaviour
             anim.SetIKPositionWeight(AvatarIKGoal.LeftFoot, 1);
             anim.SetIKPositionWeight(AvatarIKGoal.RightFoot, 1);
         }
+        else if(useIK)
+        {
+            bodyOffset = 0;
+        }
         else
         {
 
@@ -216,11 +224,11 @@ public class CharacterAnimator : MonoBehaviour
         }
 
         //Interpolate the body offset
-        bodyOffset = Mathf.Lerp(bodyOffset, anim.bodyPosition.y + offset, bodyYSpeed * Time.deltaTime);
+        bodyOffset = Mathf.Lerp(bodyOffset, offset, bodyYSpeed * Time.deltaTime);
 
         //Set the new body position
         Vector3 newBodyPosition = anim.bodyPosition;
-        newBodyPosition.y = bodyOffset;
+        newBodyPosition.y += bodyOffset;
         anim.bodyPosition = newBodyPosition;
     }
 
@@ -257,7 +265,7 @@ public class CharacterAnimator : MonoBehaviour
         }
         else if (useThickFootCast && Physics.SphereCast(ray, footRadius, out hit, maxGroundDistance + heightFromGround - (footRadius * 2), IKLayer))
         {
-            newOffset = hit.point - footPosition;
+            newOffset = (hit.point + (Vector3.up*thickFootOffset)) - footPosition;
             footOnGround = true;
         }
 

@@ -2,60 +2,87 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+[CreateAssetMenu(fileName = "NewWallrunningStance", menuName = "Stance/Wallrunning Stance", order = 3)]
 public class WallRunningStance : InputStance
 {
+    [Header("Requirements")]
     public float maxWallDistance = 1;
-    public float maxWallrunTime;
-    public float gravity = 0.1f;
+    public float maxWallrunTime = 4f;
+    public float maxVerticalVelocity = 2;
+    public float maxAngle = 120;
+
+    [Header("Wallrun Settings")]
+    public float gravity = 0.3f;
+
     [Range(0, 1)]
-    public float playerControl = 0.5f;
+    public float jumpControl = 0.3f;
+
+    public float jumpMultiplier = 1.5f;
+
+    public float entranceSpeed = 4f;
+    public float cameraAngle = 20f;
 
     public Vector3 characterCenter;
-
+    public LayerMask wallLayer;
     Vector3 wallNormal;
     Vector3 wallPosition;
 
     Vector3 side;
 
-    public LayerMask wallLayer;
-
     Rigidbody rb;
 
-    public override bool CanEnterStance(PlayerController controller)
+    public override bool CanEnterStance(PlayerController owner)
     {
-        bool canEnter = true;
+        this.owner = owner;
+        if (rb == null)
+            rb = owner.GetComponent<Rigidbody>();
 
-        canEnter &= !controller.onGround;
+        bool canEnter = true;
+        canEnter &= !owner.onGround;
         canEnter &= input;
-        canEnter &= CheckSide(Vector3.left) || CheckSide(Vector3.right);
+        canEnter &= Mathf.Abs(rb.velocity.y) < maxVerticalVelocity;
+
+        canEnter &= CheckSide(Vector3.left, owner.facing) || CheckSide(Vector3.right, owner.facing);
+        float angle = Vector3.Angle(rb.velocity.normalized, -wallNormal);
+        canEnter &= angle < maxAngle;
 
         return canEnter;
     }
 
-    public override bool OnValidateStance(PlayerController controller)
+    public override bool OnValidateStance(PlayerController owner)
     {
         bool isValidated = true;
 
         isValidated &= currentStanceTime < maxWallrunTime;
-        isValidated &= !controller.onGround;
+        isValidated &= !owner.onGround;
+        isValidated &= Mathf.Abs(rb.velocity.y) < maxVerticalVelocity;
 
-        isValidated &= CheckSide(side);
+        isValidated &= Vector3.Angle(owner.facing.TransformDirection(side), -wallNormal) < maxAngle;
+        float angle = Vector3.Angle(rb.velocity.normalized, -wallNormal);
+        isValidated &= angle < maxAngle;
+
+        CheckSide(owner.facing.InverseTransformDirection(-wallNormal), owner.facing, false);
 
         return isValidated;
     }
 
-    bool CheckSide (Vector3 side)
+    bool CheckSide(Vector3 side, Transform origin, bool setFacing = true)
     {
         RaycastHit hit;
+        Ray ray = new Ray(owner.transform.position + characterCenter, origin.TransformDirection(side));
+        Debug.DrawRay(ray.origin, ray.direction, Color.red);
 
-        Ray ray = new Ray(transform.position + characterCenter, transform.TransformDirection(side));
-
-        if(Physics.Raycast(ray, out hit, maxWallDistance, wallLayer))
+        //Check if there is a wall on this size
+        if (Physics.Raycast(ray, out hit, maxWallDistance, wallLayer))
         {
-            Debug.DrawLine(transform.position + characterCenter, hit.point, Color.white);
+            Debug.DrawLine(owner.transform.position + characterCenter, hit.point, Color.white);
             wallNormal = hit.normal;
             wallPosition = hit.point;
-            this.side = side;
+            if (setFacing)
+            {
+                this.side = side;
+            }
+
             return true;
         }
 
@@ -64,28 +91,36 @@ public class WallRunningStance : InputStance
 
     public override Vector3 OnJump(float jumpForce)
     {
-        return jumpForce * Vector3.Lerp(wallNormal, controller.cam.forward, playerControl);
+        return jumpForce * jumpMultiplier * Vector3.Lerp(wallNormal, owner.cam.forward, jumpControl);
     }
 
     public override Vector3 OnMove(Vector3 movementInput)
     {
-        rb.AddForce((1-gravity)*Physics.gravity*-1, ForceMode.Acceleration);
+        rb.AddForce((1 - gravity) * Physics.gravity * -1, ForceMode.Acceleration);
         Vector3 movement = Vector3.ProjectOnPlane(movementInput, wallNormal);
-        movement -= wallNormal;
+        movement -= wallNormal * 2;
         return movement;
     }
 
-    public override void OnEnterStance()
+    public override void OnEnterStance(PlayerController owner)
     {
-        base.OnEnterStance();
-        rb = GetComponent<Rigidbody>();
+        base.OnEnterStance(owner);
+
         Vector3 velocity = rb.velocity;
-        velocity.y *= 0.2f;
+        velocity.y *= gravity;
         rb.velocity = velocity;
+        rb.velocity = Vector3.ClampMagnitude(rb.velocity, entranceSpeed);
     }
 
-    private void OnDrawGizmosSelected()
+    public override Quaternion OnRotate(Quaternion rotationInput)
     {
-        
+        Vector3 localWallPos = owner.cam.InverseTransformPoint(wallPosition);
+        Vector3 localPos = owner.cam.InverseTransformPoint(owner.transform.position);
+
+        float currentCameraAngle = cameraAngle;
+        currentCameraAngle *= (Vector3.Dot(owner.facing.TransformVector(side), wallNormal));
+
+        //Rotate away from the wall
+        return rotationInput * Quaternion.Euler(0, 0, side.x > 0 ? -currentCameraAngle : currentCameraAngle);
     }
 }

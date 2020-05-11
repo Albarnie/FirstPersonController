@@ -2,64 +2,85 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Albarnie.InputManager;
 
-public class InputStance : EmptyStance
+public enum InteractionType
+{
+    Hold,
+    Toggle,
+    Tap
+}
+
+[CreateAssetMenu(fileName = "NewInputStance", menuName = "Stance/Input Stance", order = 3)]
+public class InputStance : GroundedStance
 {
     [SerializeField] string button = "Button";
 
-    public bool toggle = false;
+    public InteractionType interaction;
     protected bool input;
+    bool endInputNextFrame = false;
 
-    public override bool OnValidateStance(PlayerController controller)
+    public override bool OnValidateStance(PlayerController owner)
     {
-        base.OnValidateStance(controller);
+        base.OnValidateStance(owner);
 
-        if (controller.movement.sqrMagnitude < 0.5f && toggle)
+        if (owner.movement.sqrMagnitude < 0.5f && interaction == InteractionType.Toggle)
             OnInputEnd();
 
         bool isValidated = true;
 
-        isValidated &= (controller.onGround || !needsGrounded);
+        isValidated &= (owner.onGround || !needsGrounded);
         isValidated &= input;
 
         return isValidated;
     }
 
-    public override bool CanEnterStance (PlayerController controller)
+    public override bool CanEnterStance (PlayerController owner)
     {
         bool canEnter = input;
 
         canEnter &= input;
-        canEnter &= (controller.onGround || !needsGrounded);
+        canEnter &= (owner.onGround || !needsGrounded);
 
         return canEnter;
     }
 
     //Add inputs
-    void OnEnable ()
+    public override void OnEnableStance (PlayerController owner)
     {
-        if (!toggle)
+        this.owner = owner;
+        base.OnEnableStance(owner);
+        switch (interaction)
         {
-            InputManager.manager.AddEvent(button, OnInputStart, InputType.OnStarted);
-            InputManager.manager.AddEvent(button, OnInputEnd, InputType.OnCancelled);
-        }
-        else
-        {
-            InputManager.manager.AddEvent(button, OnInputToggle, InputType.OnStarted);
+            case InteractionType.Hold:
+                InputManager.manager.AddEvent(button, OnInputStart, InputType.OnStarted);
+                InputManager.manager.AddEvent(button, OnInputEnd, InputType.OnCancelled);
+                break;
+            case InteractionType.Toggle:
+                InputManager.manager.AddEvent(button, OnInputToggle, InputType.OnStarted);
+                break;
+            case InteractionType.Tap:
+                InputManager.manager.AddEvent(button, OnInputTap, InputType.OnStarted);
+                break;
         }
     }
 
     //Remove inputs
-    void OnDisable ()
+    public override void OnDisableStance (PlayerController owner)
     {
-        if (!toggle)
+        base.OnDisableStance(owner);
+        switch (interaction)
         {
-            InputManager.manager.RemoveEvent(button, OnInputStart, InputType.OnStarted);
-            InputManager.manager.RemoveEvent(button, OnInputEnd, InputType.OnCancelled);
-        }
-        else
-        {
-            InputManager.manager.RemoveEvent(button, OnInputToggle, InputType.OnStarted);
+            case InteractionType.Hold:
+                InputManager.manager.RemoveEvent(button, OnInputStart, InputType.OnStarted);
+                InputManager.manager.RemoveEvent(button, OnInputEnd, InputType.OnCancelled);
+                break;
+            case InteractionType.Toggle:
+                InputManager.manager.RemoveEvent(button, OnInputToggle, InputType.OnStarted);
+                break;
+            case InteractionType.Tap:
+                InputManager.manager.RemoveEvent(button, OnInputTap, InputType.OnStarted);
+                break;
         }
     }
 
@@ -85,5 +106,17 @@ public class InputStance : EmptyStance
     void OnInputToggle()
     {
         input = !input;
+    }
+
+    void OnInputTap ()
+    {
+        owner.StartCoroutine(InputTap());
+    }
+
+    IEnumerator InputTap ()
+    {
+        input = true;
+        yield return null;
+        input = false;
     }
 }

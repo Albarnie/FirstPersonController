@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Albarnie.InputManager;
 
 public class PlayerController : MonoBehaviour
 {
@@ -10,15 +11,17 @@ public class PlayerController : MonoBehaviour
 
     [Header("Settings")]
     public float movementSpeed = 2;
-    [SerializeField]
-    float rotationSpeed = 3;
-    [SerializeField]
-    float jumpForce = 4;
-    [Range(0, 1), SerializeField]
-    float movementSmoothness = 0.5f;
+    public float rotationSpeed = 3;
+    public float jumpForce = 4;
+    [Range(0, 1)]
+    public float movementSmoothness = 0.5f;
+    public float rotationSmoothness = 30f;
+    public float turnTilt = 10f;
 
     [SerializeField]
     float footRadius = 0.2f;
+    [SerializeField]
+    float footOffset = -0.1f;
 
     public LayerMask groundLayer;
 
@@ -34,6 +37,8 @@ public class PlayerController : MonoBehaviour
     public Vector3 lastVelocity;
     [HideInInspector]
     public Vector2 movement;
+    [HideInInspector]
+    public Vector2 smoothMovement;
     [HideInInspector]
     public Vector2 rotation;
     [HideInInspector]
@@ -51,8 +56,6 @@ public class PlayerController : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         mover = GetComponent<CharacterMover>();
 
-        stances = GetComponents<CharacterStance>();
-
         targetRotation = cam.rotation;
         
         DetirmineStance();
@@ -67,11 +70,23 @@ public class PlayerController : MonoBehaviour
         InputManager.manager.inputs.FindAction("Rotation").canceled += ctx => rotation = (Vector2)ctx.ReadValue<Vector2>();
 
         InputManager.manager.AddEvent("Jump", Jump);
+
+        for(int i = 0; i < stances.Length; i++)
+        {
+            CharacterStance original = stances[i];
+            stances[i] = Instantiate(stances[i]);
+            stances[i].name = original.name;
+
+            stances[i].OnEnableStance(this);
+        }
     }
 
     private void OnDisable()
     {
-        
+        for (int i = 0; i < stances.Length; i++)
+        {
+            stances[i].OnDisableStance(this);
+        }
     }
 
     private void Update()
@@ -83,8 +98,11 @@ public class PlayerController : MonoBehaviour
         if (currentStance == null)
             return;
 
+        currentStance.OnUpdateStance();
+
         if (!currentStance.OnValidateStance(this))
         {
+            currentStance.OnExitStance();
             currentStance = null;
             DetirmineStance();
         }
@@ -101,22 +119,30 @@ public class PlayerController : MonoBehaviour
 
     void DetirmineStance ()
     {
+        CharacterStance bestStance = currentStance;
         foreach (CharacterStance stance in stances)
         {
-            if ((currentStance == null || stance.Priority > currentStance.Priority) && stance.CanEnterStance(this))
+            if ((currentStance == null || stance.Priority > bestStance.Priority) && stance.CanEnterStance(this))
             {
-                stance.OnEnterStance();
-                currentStance = stance;
+                bestStance = stance;
             }
+        }
+
+        if(bestStance != currentStance)
+        {
+            currentStance = bestStance;
+            bestStance.OnEnterStance(this);
         }
     }
 
 
     void Move()
     {
+        smoothMovement = Vector2.Lerp(smoothMovement, movement, Time.fixedDeltaTime * 10);
+
         Vector3 velocity = new Vector3();
-        velocity.x = movement.x;
-        velocity.z = movement.y;
+        velocity.x = smoothMovement.x;
+        velocity.z = smoothMovement.y;
         velocity = Vector3.Lerp(facing.TransformDirection(velocity), character.TransformDirection(velocity), movementSmoothness);
 
         float targetSpeed = movementSpeed * currentStance.Speed;
@@ -128,23 +154,29 @@ public class PlayerController : MonoBehaviour
         velocity *= currentSpeed;
         velocity = currentStance.OnMove(velocity);
 
-        mover.Move(velocity*Time.fixedDeltaTime, out lastVelocity);
+        mover.Move(velocity * Time.fixedDeltaTime, out lastVelocity);
     }
 
     void Rotate()
     {
-        Quaternion targetRot = targetRotation;
+        Quaternion targetRot = Quaternion.Euler(targetRotation.eulerAngles.x, targetRotation.eulerAngles.y, 0);
         targetRot *= Quaternion.Euler(-rotation.y * rotationSpeed, 0, 0);
         targetRot *= Quaternion.Euler(0, rotation.x * rotationSpeed, 0);
+        targetRot *= Quaternion.Euler(0, 0, rotation.x * rotationSpeed*turnTilt);
 
         //targetRot = ClampRotationAroundXAxis(targetRot, 80);
 
-        targetRot = ClampDistance(targetRot, character.rotation, new Vector3(-80, -130, -360), new Vector3(80, 130, 360));
+        targetRot = ClampDistance(targetRot, character.rotation, new Vector3(-80, -160, -360), new Vector3(80, 160, 360));
 
         targetRot = currentStance.OnRotate(targetRot);
 
-        targetRotation = Quaternion.Euler(targetRot.eulerAngles.x, targetRot.eulerAngles.y, 0);
-        cam.rotation = Quaternion.Lerp(cam.rotation, targetRotation, Time.deltaTime*100);
+        targetRotation = Quaternion.Euler(targetRot.eulerAngles.x, targetRot.eulerAngles.y, targetRot.eulerAngles.z);
+        cam.rotation = Quaternion.Lerp(cam.rotation, targetRotation, Time.fixedDeltaTime * rotationSmoothness);
+    }
+
+    public void AddRotationOffset (Quaternion offset)
+    {
+        targetRotation *= offset;
     }
 
     void Jump ()
@@ -157,7 +189,7 @@ public class PlayerController : MonoBehaviour
 
     bool OnGround()
     {
-        return Physics.OverlapSphere(character.position, footRadius*2, groundLayer).Length > 0;
+        return Physics.OverlapSphere(character.position + (Vector3.up*footOffset), footRadius, groundLayer).Length > 0;
     }
 
     Quaternion ClampRotationAroundXAxis(Quaternion q, float clamp)
@@ -228,6 +260,21 @@ public class PlayerController : MonoBehaviour
 
     private void OnDrawGizmosSelected()
     {
-        Gizmos.DrawWireSphere(transform.position, footRadius);
+        Gizmos.DrawWireSphere(character.position + (Vector3.up * footOffset), footRadius);
+
+        foreach (CharacterStance stance in stances)
+        {
+            if (stance != null)
+            {
+                try
+                {
+                    stance.OnDrawDebug(transform.position);
+                }
+                catch
+                {
+
+                }
+            }
+        }
     }
 }
